@@ -733,7 +733,7 @@
                         doc.setTextColor(255, 255, 255);
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(8);
-                        doc.text(appSettings.namaSekolah || "NAMA SEKOLAH", x + 18, y + 6.5);
+                        doc.text(String(appSettings.namaSekolah || "NAMA SEKOLAH"), x + 18, y + 6.5);
                         
                         doc.setFont('helvetica', 'normal');
                         doc.setFontSize(6);
@@ -747,7 +747,7 @@
                         
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(8);
-                        const splitNama = doc.splitTextToSize(s.nama_lengkap.toUpperCase(), 45);
+                        const splitNama = doc.splitTextToSize(String(s.nama_lengkap || "").toUpperCase(), 45);
                         doc.text(splitNama, x + 5, y + 25);
                         
                         doc.setFont('helvetica', 'normal');
@@ -756,7 +756,7 @@
                         
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(8);
-                        doc.text(s.kelas, x + 5, y + 39);
+                        doc.text(String(s.kelas || ""), x + 5, y + 39);
 
                         // 6. Kotak PIN
                         doc.setFillColor(243, 244, 246);
@@ -769,7 +769,7 @@
                         doc.setTextColor(37, 99, 235);
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(11);
-                        doc.text(s.pin, x + 68, y + 30, { align: 'center' });
+                        doc.text(String(s.pin || ""), x + 68, y + 30, { align: 'center' });
 
                         // 7. TTD Kepsek
                         doc.setTextColor(0, 0, 0);
@@ -779,11 +779,11 @@
                         
                         doc.setFont('helvetica', 'bold');
                         doc.setFontSize(6);
-                        doc.text(appSettings.kepsekNama || "Nama Kepsek", x + cardW - 5, y + 46, { align: 'right' });
+                        doc.text(String(appSettings.kepsekNama || "Nama Kepsek"), x + cardW - 5, y + 46, { align: 'right' });
                         
                         doc.setFont('helvetica', 'normal');
                         doc.setFontSize(5);
-                        doc.text("NIP. " + (appSettings.kepsekNip || "-"), x + cardW - 5, y + 48.5, { align: 'right' });
+                        doc.text("NIP. " + String(appSettings.kepsekNip || "-"), x + cardW - 5, y + 48.5, { align: 'right' });
 
                         col++;
                         if (col >= maxCols) {
