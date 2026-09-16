@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Generator Kartu Ujian</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- jsPDF & autotable (untuk PDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- SheetJS (untuk Excel Import) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        /* Hirarki Z-Index Wajib */
+        .z-content { z-index: 10; }
+        .z-modal { z-index: 1000; }
+        .z-toast { z-index: 2000; }
+        .z-loading { z-index: 9999; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Animasi */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased overflow-x-hidden relative min-h-screen">
+
+    <!-- OVERLAY LOADING (Z-Index 9999) -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-loading hidden flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600 mb-4"></div>
+        <p id="loading-text" class="text-blue-800 font-semibold text-lg text-center whitespace-pre-line">Memproses...</p>
+    </div>
+
+    <!-- WADAH TOAST (Z-Index 2000) -->
+    <div id="toast-container" class="fixed top-5 right-5 z-toast flex flex-col gap-3"></div>
+
+    <!-- MODAL KONFIRMASI GLOBAL (Z-Index 1000) -->
+    <div id="modal-confirm" class="fixed inset-0 bg-black/50 z-modal hidden flex items-center justify-center fade-in">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-md p-6">
+            <h3 id="confirm-title" class="text-xl font-bold text-gray-800 mb-2">Konfirmasi</h3>
+            <p id="confirm-message" class="text-gray-600 mb-6">Apakah Anda yakin?</p>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition">Batal</button>
+                <button id="confirm-btn-yes" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">Ya, Lanjutkan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- AUTH GUARD: LAYAR LOGIN -->
+    <!-- ========================================== -->
+    <div id="login-screen" class="min-h-screen flex items-center justify-center z-content">
+        <div class="bg-white p-8 rounded-xl shadow-2xl w-11/12 max-w-md border-t-4 border-blue-600">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-id-card text-3xl text-blue-600"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800">Cetak Kartu Ujian</h2>
+                <p class="text-gray-500 text-sm mt-1">Gunakan akun admin untuk masuk</p>
+            </div>
+            
+            <form id="login-form" onsubmit="handleLogin(event)">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2" for="username">Username</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-3 top-3.5 text-gray-400"></i>
+                        <input type="text" id="username" class="w-full pl-10 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Masukkan username" required>
+                    </div>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2" for="password">Password</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-3 top-3.5 text-gray-400"></i>
+                        <input type="password" id="password" class="w-full pl-10 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition" placeholder="Masukkan password" required>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg transition duration-200">
+                    <i class="fa-solid fa-right-to-bracket mr-2"></i> Masuk
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MAIN APP: DASHBOARD (Disembunyikan via JS) -->
+    <!-- ========================================== -->
+    <div id="app-screen" class="hidden min-h-screen flex-col z-content">
+        <!-- Navbar -->
+        <nav class="bg-blue-700 text-white shadow-lg sticky top-0 z-50">
+            <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-id-card-clip text-2xl"></i>
+                    <h1 class="text-xl font-bold hidden sm:block">Admin Panel - Kartu Ujian</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button onclick="openSettingsModal()" class="hover:bg-blue-600 p-2 rounded-full transition" title="Pengaturan Kartu">
+                        <i class="fa-solid fa-gear"></i>
+                    </button>
+                    <div class="flex items-center gap-2 border-l border-blue-500 pl-4">
+                        <span class="text-sm font-medium" id="display-user"><i class="fa-solid fa-user-circle mr-1"></i> Admin</span>
+                        <button onclick="handleLogout()" class="text-sm bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded transition">
+                            <i class="fa-solid fa-power-off"></i> Logout
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="flex-grow container mx-auto px-4 py-6">
+            
+            <!-- Statistik & Banner -->
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 border-l-4 border-l-blue-500">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800">Manajemen Data Siswa</h2>
+                    <p class="text-sm text-gray-500">Kelola dan cetak kartu peserta ujian secara massal atau mandiri.</p>
+                </div>
+                <div class="bg-blue-50 px-4 py-2 rounded-lg text-center min-w-[120px]">
+                    <span class="block text-xs text-blue-600 font-bold uppercase tracking-wider">Total Data</span>
+                    <span id="total-siswa" class="text-2xl font-bold text-blue-800">0</span>
+                </div>
+            </div>
+
+            <!-- Toolbar Aksi -->
+            <div class="flex flex-wrap gap-2 mb-4 justify-between items-center">
+                <div class="flex gap-2">
+                    <button onclick="openSiswaModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow-sm text-sm font-semibold transition">
+                        <i class="fa-solid fa-plus mr-1"></i> Tambah Manual
+                    </button>
+                    <button onclick="openImportModal()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded shadow-sm text-sm font-semibold transition">
+                        <i class="fa-solid fa-file-excel mr-1"></i> Import Excel
+                    </button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="hapusSemuaSiswa()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow-sm text-sm font-semibold transition flex items-center gap-2">
+                        <i class="fa-solid fa-trash-can"></i> Hapus Semua Data
+                    </button>
+                    <button onclick="generateMassalPDF()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded shadow-sm text-sm font-semibold transition flex items-center gap-2">
+                        <i class="fa-solid fa-print"></i> Cetak Semua Kartu (PDF)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabel Data -->
+            <div class="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">No</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Lengkap</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PIN Ujian</th>
+                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Data baris dirender via JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- State Kosong -->
+                <div id="empty-state" class="hidden flex-col items-center justify-center py-12 text-gray-400">
+                    <i class="fa-solid fa-folder-open text-4xl mb-3"></i>
+                    <p>Belum ada data siswa. Tambahkan atau import file Excel.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: TAMBAH/EDIT SISWA -->
+    <!-- ========================================== -->
+    <div id="modal-siswa" class="fixed inset-0 bg-black/50 z-modal hidden flex items-center justify-center fade-in">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-md overflow-hidden">
+            <div class="bg-blue-600 px-6 py-4 flex justify-between items-center">
+                <h3 id="modal-siswa-title" class="text-white font-bold text-lg">Tambah Siswa</h3>
+                <button onclick="closeModal('modal-siswa')" class="text-white hover:text-gray-200 transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="form-siswa" onsubmit="handleSaveSiswa(event)" class="p-6">
+                <input type="hidden" id="siswa-id">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2">Nama Lengkap</label>
+                    <input type="text" id="siswa-nama" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div class="mb-4 flex gap-4">
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-semibold mb-2">Kelas</label>
+                        <input type="text" id="siswa-kelas" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Cth: XII-IPA-1" required>
+                    </div>
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-semibold mb-2">PIN</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="siswa-pin" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none font-mono font-bold" required>
+                            <button type="button" onclick="generateRandomPIN()" class="bg-gray-200 px-3 rounded hover:bg-gray-300" title="Acak PIN"><i class="fa-solid fa-rotate"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button type="button" onclick="closeModal('modal-siswa')" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Batal</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold">Simpan Data</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: IMPORT EXCEL -->
+    <!-- ========================================== -->
+    <div id="modal-import" class="fixed inset-0 bg-black/50 z-modal hidden flex items-center justify-center fade-in">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-md overflow-hidden">
+            <div class="bg-amber-500 px-6 py-4 flex justify-between items-center">
+                <h3 class="text-white font-bold text-lg">Import Data Siswa</h3>
+                <button onclick="closeModal('modal-import')" class="text-white hover:text-amber-100 transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-6">
+                <div class="mb-4 bg-amber-50 p-3 rounded border border-amber-200 text-sm text-amber-800">
+                    <strong>Format Wajib:</strong> File Excel (.xlsx) harus memiliki header kolom persis seperti ini di baris pertama: <strong>Nama</strong>, <strong>Kelas</strong>, <strong>PIN</strong>.
+                </div>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:bg-gray-50 transition cursor-pointer relative">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-gray-400 mb-2"></i>
+                    <p class="text-gray-600 text-sm font-medium">Klik atau Drag file Excel ke sini</p>
+                    <input type="file" id="file-upload" accept=".xlsx, .xls, .csv" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="handleFileUpload(event)">
+                </div>
+                <p id="file-name-display" class="text-center text-sm font-medium text-blue-600 mt-2 truncate"></p>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button onclick="closeModal('modal-import')" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Tutup</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: PENGATURAN KARTU -->
+    <!-- ========================================== -->
+    <div id="modal-settings" class="fixed inset-0 bg-black/50 z-modal hidden flex items-center justify-center fade-in">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-lg overflow-hidden">
+            <div class="bg-gray-800 px-6 py-4 flex justify-between items-center">
+                <h3 class="text-white font-bold text-lg">Pengaturan Desain Kartu</h3>
+                <button onclick="closeModal('modal-settings')" class="text-white hover:text-gray-300 transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="form-settings" onsubmit="handleSaveSettings(event)" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-gray-700 text-sm font-semibold mb-1">Nama Sekolah</label>
+                    <input type="text" id="set-namasekolah" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-semibold mb-1">URL Logo Sekolah <span class="text-xs font-normal text-gray-400">(Tautan Publik Gambar)</span></label>
+                    <input type="url" id="set-logo" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-semibold mb-1">Nama Kepala Sekolah</label>
+                        <input type="text" id="set-kepsek" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-semibold mb-1">NIP Kepala Sekolah</label>
+                        <input type="text" id="set-nip" class="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6 pt-4 border-t">
+                    <button type="button" onclick="closeModal('modal-settings')" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Batal</button>
+                    <button type="submit" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 font-semibold">Simpan Pengaturan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- LOGIKA JAVASCRIPT (PRODUCTION) -->
+    <!-- ========================================== -->
+    <script>
+        /**
+         ============================================================
+         WAJIB DIUBAH!
+         Ganti URL di bawah dengan URL Web App Apps Script Anda 
+         setelah selesai deploy Backend di Google Apps Script.
+         ============================================================
+        */
+        const APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxqPN-yfGeKHAsp3foJBGIK0-ICgZUAMncr0GQwMBnAQBDdgf4UwiEj8gj5dpjLGOaBSg/exec";
+
+        let students = [];
+        let appSettings = {
+            namaSekolah: 'SMA NEGERI CONTOH',
+            logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Tut_Wuri_Handayani.svg/150px-Tut_Wuri_Handayani.svg.png',
+            kepsekNama: 'Dr. H. Ahmad Dahlan, M.Pd.',
+            kepsekNip: '19700101 199512 1 001'
+        };
+        let currentActionConfirm = null;
+        let sessionToken = sessionStorage.getItem('app_session') || null;
+
+        function showLoading(text = 'Memproses...') {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            document.getElementById('loading-overlay').classList.add('flex');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+            document.getElementById('loading-overlay').classList.remove('flex');
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgColor = 'bg-blue-600';
+            let icon = 'fa-info-circle';
+            if (type === 'success') { bgColor = 'bg-green-600'; icon = 'fa-check-circle'; }
+            if (type === 'error') { bgColor = 'bg-red-600'; icon = 'fa-exclamation-triangle'; }
+            if (type === 'warning') { bgColor = 'bg-amber-500'; icon = 'fa-exclamation-circle'; }
+
+            toast.className = `${bgColor} text-white px-4 py-3 rounded shadow-lg flex items-center gap-3 fade-in transform transition-all duration-300 translate-x-full`;
+            toast.innerHTML = `<i class="fa-solid ${icon} text-lg"></i> <div>${message}</div>`;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => { toast.classList.remove('translate-x-full'); }, 10);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-x-full');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showConfirm(title, message, callback) {
+            document.getElementById('confirm-title').innerText = title;
+            document.getElementById('confirm-message').innerText = message;
+            currentActionConfirm = callback;
+            document.getElementById('modal-confirm').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('modal-confirm').classList.add('hidden');
+            currentActionConfirm = null;
+        }
+
+        document.getElementById('confirm-btn-yes').addEventListener('click', () => {
+            if (currentActionConfirm) currentActionConfirm();
+            closeConfirmModal();
+        });
+
+        function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        async function callApi(payload) {
+            if(sessionToken && payload.action !== 'login') {
+                payload.token = sessionToken;
+            }
+
+            try {
+                const response = await fetch(APP_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Mengatasi CORS preflight di GAS
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await response.json();
+                
+                // Cek Session Expired (Autologout)
+                if(!result.success && result.message === "Sesi tidak valid atau kadaluarsa") {
+                    handleForceLogout();
+                    throw new Error("Sesi Habis");
+                }
+                
+                return result;
+            } catch (error) {
+                console.error("API Error:", error);
+                throw error;
+            }
+        }
+
+        window.onload = async () => {
+            if (sessionToken) {
+                showLoading("Memverifikasi sesi...");
+                try {
+                    await fetchDataFromServer();
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('app-screen').classList.remove('hidden');
+                    document.getElementById('app-screen').classList.add('flex');
+                } catch(e) {
+                    // Jika sesi invalid, biarkan di layar login
+                }
+                hideLoading();
+            }
+        };
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            showLoading("Memverifikasi Kredensial...");
+            
+            try {
+                const res = await callApi({ action: 'login', username, password });
+                hideLoading();
+                
+                if (res.success) {
+                    sessionToken = res.data.token;
+                    sessionStorage.setItem('app_session', sessionToken);
+                    document.getElementById('display-user').innerHTML = `<i class="fa-solid fa-user-circle mr-1"></i> ${res.data.username}`;
+                    
+                    showLoading("Memuat Data...");
+                    await fetchDataFromServer();
+                    
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('app-screen').classList.remove('hidden');
+                    document.getElementById('app-screen').classList.add('flex');
+                    document.getElementById('login-form').reset();
+                    showToast('Berhasil masuk ke Dashboard', 'success');
+                } else {
+                    showToast(res.message, 'error');
+                }
+            } catch (err) {
+                hideLoading();
+                showToast("Terjadi kesalahan jaringan atau Backend gagal diakses", "error");
+            }
+        }
+
+        function handleLogout() {
+            showConfirm("Logout", "Anda yakin ingin keluar dari sistem?", () => {
+                handleForceLogout();
+                showToast('Berhasil logout', 'info');
+            });
+        }
+
+        function handleForceLogout() {
+            sessionStorage.removeItem('app_session');
+            sessionToken = null;
+            document.getElementById('app-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('flex');
+            document.getElementById('login-screen').classList.remove('hidden');
+        }
+
+        async function fetchDataFromServer() {
+            try {
+                const res = await callApi({ action: 'get_data' });
+                if (res.success) {
+                    students = res.data.siswa;
+                    appSettings = res.data.settings;
+                    renderTable();
+                } else {
+                    throw new Error(res.message);
+                }
+            } catch (err) {
+                showToast("Gagal memuat data", "error");
+                throw err;
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            const emptyState = document.getElementById('empty-state');
+            document.getElementById('total-siswa').innerText = students.length;
+            
+            tbody.innerHTML = '';
+            
+            if (students.length === 0) {
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+            } else {
+                emptyState.classList.add('hidden');
+                emptyState.classList.remove('flex');
+                
+                students.forEach((s, index) => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-gray-50 transition";
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${index + 1}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">${s.nama_lengkap}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-semibold">${s.kelas}</span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-gray-600">${s.pin}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                            <button onclick="editSiswa('${s.id}')" class="text-indigo-600 hover:text-indigo-900 mr-3" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="hapusSiswa('${s.id}')" class="text-red-600 hover:text-red-900" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        function generateRandomPIN() {
+            const pin = Math.floor(100000 + Math.random() * 900000);
+            document.getElementById('siswa-pin').value = pin.toString();
+        }
+
+        function openSiswaModal() {
+            document.getElementById('form-siswa').reset();
+            document.getElementById('siswa-id').value = '';
+            document.getElementById('modal-siswa-title').innerText = 'Tambah Data Siswa';
+            showModal('modal-siswa');
+        }
+
+        function editSiswa(id) {
+            const s = students.find(x => x.id === id);
+            if(s) {
+                document.getElementById('siswa-id').value = s.id;
+                document.getElementById('siswa-nama').value = s.nama_lengkap;
+                document.getElementById('siswa-kelas').value = s.kelas;
+                document.getElementById('siswa-pin').value = s.pin;
+                document.getElementById('modal-siswa-title').innerText = 'Edit Data Siswa';
+                showModal('modal-siswa');
+            }
+        }
+
+        async function handleSaveSiswa(e) {
+            e.preventDefault();
+            const id = document.getElementById('siswa-id').value;
+            const nama_lengkap = document.getElementById('siswa-nama').value;
+            const kelas = document.getElementById('siswa-kelas').value;
+            const pin = document.getElementById('siswa-pin').value;
+            
+            showLoading("Menyimpan ke Database...");
+            try {
+                const res = await callApi({
+                    action: 'save_siswa',
+                    data: { id, nama_lengkap, kelas, pin }
+                });
+                
+                hideLoading();
+                if(res.success) {
+                    showToast('Data berhasil disimpan', 'success');
+                    closeModal('modal-siswa');
+                    showLoading("Memperbarui tampilan...");
+                    await fetchDataFromServer();
+                    hideLoading();
+                } else {
+                    showToast(res.message, 'error');
+                }
+            } catch (err) {
+                hideLoading();
+                showToast('Gagal menyimpan data', 'error');
+            }
+        }
+
+        function hapusSiswa(id) {
+            showConfirm("Hapus Data", "Yakin ingin menghapus data siswa ini?", async () => {
+                showLoading("Menghapus dari database...");
+                try {
+                    const res = await callApi({ action: 'delete_siswa', id });
+                    if(res.success) {
+                        showToast('Data berhasil dihapus', 'success');
+                        await fetchDataFromServer();
+                    } else {
+                        showToast(res.message, 'error');
+                    }
+                } catch (err) {
+                    showToast('Gagal menghapus data', 'error');
+                }
+                hideLoading();
+            });
+        }
+
+        function hapusSemuaSiswa() {
+            if (students.length === 0) {
+                showToast('Tidak ada data untuk dihapus', 'warning');
+                return;
+            }
+            showConfirm("Hapus Semua Data", "PERINGATAN: Anda yakin ingin menghapus SELURUH data siswa? Tindakan ini tidak dapat dibatalkan.", async () => {
+                showLoading("Menghapus semua data database...");
+                try {
+                    const res = await callApi({ action: 'delete_all_siswa' });
+                    if(res.success) {
+                        showToast('Seluruh data berhasil dihapus', 'success');
+                        await fetchDataFromServer();
+                    } else {
+                        showToast(res.message, 'error');
+                    }
+                } catch (err) {
+                    showToast('Gagal menghapus semua data', 'error');
+                }
+                hideLoading();
+            });
+        }
+
+        function openSettingsModal() {
+            document.getElementById('set-namasekolah').value = appSettings.namaSekolah || '';
+            document.getElementById('set-logo').value = appSettings.logoUrl || '';
+            document.getElementById('set-kepsek').value = appSettings.kepsekNama || '';
+            document.getElementById('set-nip').value = appSettings.kepsekNip || '';
+            showModal('modal-settings');
+        }
+
+        async function handleSaveSettings(e) {
+            e.preventDefault();
+            const newSettings = {
+                namaSekolah: document.getElementById('set-namasekolah').value,
+                logoUrl: document.getElementById('set-logo').value,
+                kepsekNama: document.getElementById('set-kepsek').value,
+                kepsekNip: document.getElementById('set-nip').value
+            };
+            
+            showLoading("Menyimpan Pengaturan...");
+            try {
+                const res = await callApi({ action: 'save_settings', data: newSettings });
+                if(res.success) {
+                    appSettings = newSettings;
+                    showToast('Pengaturan kartu berhasil disimpan', 'success');
+                    closeModal('modal-settings');
+                } else {
+                    showToast(res.message, 'error');
+                }
+            } catch (err) {
+                showToast('Gagal menyimpan pengaturan', 'error');
+            }
+            hideLoading();
+        }
+
+        function openImportModal() {
+            document.getElementById('file-upload').value = '';
+            document.getElementById('file-name-display').innerText = '';
+            showModal('modal-import');
+        }
+
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            document.getElementById('file-name-display').innerText = "File terpilih: " + file.name;
+            showConfirm("Import File", `Proses data dari file ${file.name}?`, () => {
+                showLoading("Membaca File Excel & Mengirim ke Database...");
+                
+                const reader = new FileReader();
+                reader.onload = async function(evt) {
+                    try {
+                        const data = evt.target.result;
+                        const workbook = XLSX.read(data, {type: 'binary'});
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, {raw: false});
+                        
+                        let payloadData = [];
+                        json.forEach(row => {
+                            const nama = row['Nama'] || row['nama'] || row['NAMA'];
+                            const kelas = row['Kelas'] || row['kelas'] || row['KELAS'];
+                            const pin = row['PIN'] || row['Pin'] || row['pin'];
+                            if (nama && kelas && pin) {
+                                payloadData.push({ nama_lengkap: String(nama), kelas: String(kelas), pin: String(pin) });
+                            }
+                        });
+                        
+                        if(payloadData.length > 0) {
+                            const res = await callApi({ action: 'bulk_insert_siswa', data: payloadData });
+                            if(res.success) {
+                                showToast(`Berhasil mengimpor ${payloadData.length} data siswa`, 'success');
+                                closeModal('modal-import');
+                                await fetchDataFromServer();
+                            } else {
+                                showToast(res.message, 'error');
+                            }
+                        } else {
+                            showToast('Gagal! Pastikan header kolom Excel (Nama, Kelas, PIN) sudah benar.', 'error');
+                        }
+                    } catch(err) {
+                        console.error(err);
+                        showToast('Gagal memproses file atau terhubung ke Backend.', 'error');
+                    }
+                    hideLoading();
+                };
+                reader.readAsBinaryString(file);
+            });
+        }
+
+        async function generateMassalPDF() {
+            if (students.length === 0) {
+                showToast("Tidak ada data siswa untuk dicetak!", "error");
+                return;
+            }
+
+            showLoading("Membuat PDF Kartu Ujian (Landscape)...\nHarap tunggu sebentar, ini mungkin memakan waktu...");
+            
+            // Jeda sedikit agar UI Loading sempat render
+            setTimeout(() => {
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF('p', 'mm', 'a4'); 
+                    
+                    const cardW = 86;
+                    const cardH = 54;
+                    const marginX = 15; 
+                    const marginY = 20; 
+                    const gapX = 8;
+                    const gapY = 8;
+                    const maxCols = 2;
+                    const maxRows = 4;
+                    
+                    let col = 0;
+                    let row = 0;
+                    let cardCount = 0;
+
+                    for (let i = 0; i < students.length; i++) {
+                        const s = students[i];
+
+                        if (cardCount > 0 && cardCount % (maxCols * maxRows) === 0) {
+                            doc.addPage();
+                            col = 0;
+                            row = 0;
+                        }
+
+                        const x = marginX + (col * (cardW + gapX));
+                        const y = marginY + (row * (cardH + gapY));
+
+                        // 1. Batas Luar
+                        doc.setDrawColor(200, 200, 200);
+                        doc.setLineWidth(0.2);
+                        doc.rect(x, y, cardW, cardH);
+                        
+                        // 2. Banner Atas (Biru)
+                        doc.setFillColor(37, 99, 235);
+                        doc.rect(x, y, cardW, 14, 'F');
+                        
+                        // 3. Bulatan Putih (Placeholder Logo)
+                        doc.setFillColor(255, 255, 255);
+                        doc.circle(x + 10, y + 7, 5, 'F');
+                        
+                        // 4. Header Sekolah
+                        doc.setTextColor(255, 255, 255);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(8);
+                        doc.text(appSettings.namaSekolah || "NAMA SEKOLAH", x + 18, y + 6.5);
+                        
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(6);
+                        doc.text("KARTU PESERTA UJIAN", x + 18, y + 10.5);
+
+                        // 5. Data Siswa
+                        doc.setTextColor(0, 0, 0);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(6);
+                        doc.text("Nama Peserta:", x + 5, y + 21);
+                        
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(8);
+                        const splitNama = doc.splitTextToSize(s.nama_lengkap.toUpperCase(), 45);
+                        doc.text(splitNama, x + 5, y + 25);
+                        
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(6);
+                        doc.text("Kelas:", x + 5, y + 35);
+                        
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(8);
+                        doc.text(s.kelas, x + 5, y + 39);
+
+                        // 6. Kotak PIN
+                        doc.setFillColor(243, 244, 246);
+                        doc.rect(x + 55, y + 19, 26, 14, 'F');
+                        
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(6);
+                        doc.text("PIN UJIAN", x + 68, y + 23, { align: 'center' });
+                        
+                        doc.setTextColor(37, 99, 235);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(11);
+                        doc.text(s.pin, x + 68, y + 30, { align: 'center' });
+
+                        // 7. TTD Kepsek
+                        doc.setTextColor(0, 0, 0);
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(5);
+                        doc.text("Kepala Sekolah,", x + cardW - 5, y + 42, { align: 'right' });
+                        
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(6);
+                        doc.text(appSettings.kepsekNama || "Nama Kepsek", x + cardW - 5, y + 46, { align: 'right' });
+                        
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(5);
+                        doc.text("NIP. " + (appSettings.kepsekNip || "-"), x + cardW - 5, y + 48.5, { align: 'right' });
+
+                        col++;
+                        if (col >= maxCols) {
+                            col = 0;
+                            row++;
+                        }
+                        cardCount++;
+                    }
+
+                    doc.save(`Kartu_Ujian_${new Date().getTime()}.pdf`);
+                    hideLoading();
+                    showToast('File PDF Kartu Ujian berhasil diunduh!', 'success');
+                    
+                } catch (error) {
+                    hideLoading();
+                    console.error(error);
+                    showToast('Terjadi kesalahan saat membuat file PDF', 'error');
+                }
+            }, 800);
+        }
+    </script>
+</body>
+</html>
